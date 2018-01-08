@@ -1,0 +1,344 @@
+---
+title: "STAT 526 Project"
+output:
+  word_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Data Background
+
+We can see from the histgram below that over 50% of observations are with area equal to zero.
+```{r}
+data <-read.csv("/Users/Renee/Google Drive/2017 Fall/STAT 526/project/forestfires.csv",sep=',',header=TRUE)
+data<-as.data.frame(data)
+attach(data)
+hist(area, 40)
+```
+```{r}
+round(table(area==0)/nrow(data),2)
+```
+
+Goal 1: Analysis the  whether the area is burned
+
+By creating a dummy variable, factor_area with tow levels (factor_area=1 means the area was bured while factor_area=0 means the area wasn't burned), we are able to analysis the probability of the occurrance of fire with a binomial model.
+
+1.1 Binomial Model Selection
+```{r}
+databi<-as.data.frame(data)
+databi$factor_area <- rep('0',517)
+for(i in 1:517){
+  if(databi$area[i]>0){
+    databi$factor_area[i] <-  1
+  }
+}
+databi$factor_area<-as.numeric(databi$factor_area)
+bmod <- glm(factor_area~FFMC+DMC+DC+ISI+temp+RH+wind,data=databi,family=binomial(link=logit))#location coordinates doesn't make sense.
+summary(bmod)
+(table<-xtabs(count~factor_area+rain))
+(table<-xtabs(count~factor_area+month))
+(table<-xtabs(count~factor_area+day))
+```
+```{r}
+bmod1<-step(bmod,test="Chi",trace=F)
+summary(bmod1)
+```
+```{r}
+pchisq(deviance(bmod1)-deviance(bmod),df.residual(bmod1)-df.residual(bmod),lower=F)
+pchisq(deviance(bmod1),df.residual(bmod1),lower=F)#GOD
+sum(residuals(bmod1,type="pearson")^2)/df.residual(bmod1)#overdispersion
+```
+```{r}
+drop1(bmod1,test="Chi")
+```
+```{r}
+bmod11<-update(bmod1,.~.-wind)
+summary(bmod11)
+```
+```{r}
+pchisq(deviance(bmod11)-deviance(bmod1),df.residual(bmod11)-df.residual(bmod1),lower=F)
+pchisq(deviance(bmod11),df.residual(bmod11),lower=F)
+```
+
+1.3 Transformation
+Because there are data unavailable in some levels of categorical factors month and day, we exclude these two factors from the model.
+```{r}
+bmod2<-glm(factor_area~(FFMC+DMC+DC+ISI+temp+RH+wind)^2+I(FFMC^2)+I(DMC^2)+I(DC^2)+I(ISI^2)+I(temp^2)+I(RH^2)+I(wind^2),data=databi,family=binomial(link=logit))
+summary(bmod2)
+```
+```{r}
+bmod21<-step(bmod2,test="Chi",trace=F)
+summary(bmod21)
+```
+```{r}
+pchisq(deviance(bmod21)-deviance(bmod2),df.residual(bmod21)-df.residual(bmod2),lower=F)
+pchisq(deviance(bmod21),df.residual(bmod21),lower=F)#GOD
+sum(residuals(bmod21,type="pearson")^2)/df.residual(bmod21)#overdispersion
+```
+```{r}
+attach(databi)
+ct<-xtabs(factor_area~month)
+ct
+barplot(ct,xlab = "month", ylab = "forest fire",
+main = "forest fire area for different months")
+```
+
+```{r}
+#we re-classify the month factor into different seasons
+databi$season <- rep("spring", 517)
+for (i in 1:517){
+if (databi$month[i] %in% c("feb","jan","dec")) databi$season[i] <- "winter"
+if (databi$month[i] %in% c("oct","nov","sep")) databi$season[i] <- "autumn"
+if (databi$month[i] %in% c("aug","jul","jun")) databi$season[i] <- "summer"
+}
+databi$season <- as.factor(databi$season)
+databi$count<- rep(1, 517)
+(table<-xtabs(count~ season+factor_area, databi))
+```
+```{r}
+#refit model with season
+bmod3<-glm(factor_area~season+(FFMC+DMC+DC+ISI+temp+RH+wind)^2+I(FFMC^2)+I(DMC^2)+I(DC^2)+I(ISI^2)+I(temp^2)+I(RH^2)+I(wind^2),data=databi,family=binomial(link=logit))
+summary(bmod3)
+```
+```{r}
+bmod31<-step(bmod3,test="Chi",trace=F)
+summary(bmod31)
+```
+```{r}
+logitplot <- function(x,y,ncat=10,xlab=xlab,ylab=ylab) {
+brksx <- unique(quantile(x,probs=0:ncat/ncat));
+nbrksx <- length(brksx);
+cutx <- cut(x,breaks=brksx,include.lowest=TRUE);
+yt <- table(data.frame(y,cutx));
+mx <- tapply(x,cutx,FUN=mean);
+logit <- log((yt[2,]+0.5)/(yt[1,]+0.5));
+plot(mx,logit,xlab=xlab,ylab=ylab);
+}
+par(mfrow=c(3,3))
+logitplot(DC,factor_area,xlab="DC",ylab="adjusted sample logit")
+logitplot(temp,factor_area,xlab="temp",ylab="adjusted sample logit")
+logitplot(RH,factor_area,xlab="RH",ylab="adjusted sample logit")
+logitplot(I(temp^2),factor_area,xlab="temp^2",ylab="adjusted sample logit")
+logitplot(I(RH^2),factor_area,xlab="RH^2",ylab="adjusted sample logit")
+logitplot(I(wind^2),factor_area,xlab="wind^2",ylab="adjusted sample logit")
+```
+
+```{r}
+par(mfrow=c(2,2))
+plot(residuals(bmod21,type="pearson")~predict(bmod21,type="response"),xlab=expression(hat(pi)),ylab="Pearson Residual")
+plot(residuals(bmod21,type="pearson")~predict(bmod21,type="link"),xlab=expression(hat(eta)),ylab="Pearson Residual")
+plot(bmod21,which=4)
+```
+
+same model.
+
+interpretation.
+
+Goal 2: during which season the Fire Occurred
+
+```{r}
+### category  WIND
+summary(databi$wind)
+databi$cwind <- rep("low", 517)
+for(i in 1:517){
+  if (databi$wind[i]<=3) databi$cwind[i] <- "light"
+  if (databi$wind[i]>3 & databi$cwind[i]<=6) databi$weather[i] <- "mid"
+  if (databi$wind[i]>6 ) databi$cwind[i] <- "strong"
+}
+```
+```{r}
+### category TEMP
+summary(databi$temp)
+databi$ctemp <- rep("hot", 517)
+for(i in 1:517){
+  if (databi$temp[i]<=10) databi$ctemp[i] <- "cold"
+  if (databi$temp[i]>10 & databi$temp[i]<=20) databi$ctemp[i] <- "warm"
+  if (databi$temp[i]>20 ) databi$ctemp[i] <- "hot"
+}
+```
+```{r}
+### category SEASON
+databi$season <- rep("spring", 517)
+for (i in 1:517){
+if (databi$month[i] %in% c("feb","jan","dec")) databi$season[i] <- "winter"
+if (databi$month[i] %in% c("oct","nov","sep")) databi$season[i] <- "autumn"
+if (databi$month[i] %in% c("aug","jul","jun")) databi$season[i] <- "summer"
+}
+databi$season <- as.factor(databi$season)
+databi$count<- rep(1, 517)
+(table<-xtabs(count~ weather + windy +factor_area, databi))
+```
+```{r}
+### category RH
+databi$cRH <- rep("dry", 517)
+for(i in 1:517){
+  if (databi$RH[i]<=40) databi$cRH[i] <- "dry"
+  if (databi$RH[i]>40 & databi$RH[i]<=60) databi$cRH[i] <- "comfort"
+  if (databi$RH[i]>60 ) databi$cRH[i] <- "humid"
+}
+databi$humidity <- as.factor(databi$cRH)
+(table<-xtabs(count~ ctemp+ season +factor_area, databi))
+```
+```{r}
+pim<-prop.table(table(databi$ctemp,databi$season),1)
+logit(pim[,1])-logit(pim[,1]+pim[,2])
+```
+
+The factor weather(classed temp) doesn't follow proportional odds assumption.Thus, we used weather and windy factors to fit the multinomial model.
+```{r}
+#windy+humidity
+datamult<- subset(databi,factor_area==1)
+library(nnet)
+multimod<- multinom(season~ cRH + cwind, datamult)
+multimod1<-step(multimod)
+multimod1
+pchisq(deviance(multimod1)-deviance(multimod), multimod$edf-multimod1$edf, lower=F)
+pchisq(deviance(multimod), multimod$edf, lower=F)
+library(MASS)
+propmod<- polr(season~ cwind+cRH, datamult)
+summary(propmod)
+pchisq(deviance(propmod), propmod$edf, lower=F)
+pim<-prop.table(table(datamult$cRH,datamult$season),1)
+logit(pim[,1])-logit(pim[,1]+pim[,2])
+pim1<-prop.table(table(datamult$cwind,datamult$season),1)
+logit(pim1[,1])-logit(pim1[,1]+pim1[,2])
+```
+
+
+Goal 3: Predict how much area was burned during the fire
+Approach 1: Predict Burned Area with All Data
+```{r}
+par(mfrow=c(3,3))
+plot(log(area+1) ~ FFMC + DMC + DC + ISI + temp + RH + wind + rain,
+data = data)
+```
+
+```{r}
+mod<-lm(log(area+1) ~ month+day+FFMC + DMC + DC + ISI + temp + RH + wind +rain,data = data)
+summary(mod)
+```
+
+```{r}
+mod1<-step(mod,test="Chi",trace=F)
+summary(mod1)
+```
+
+```{r}
+plot(mod1)
+```
+
+
+Approach 2: Predict Burned Area with Only Burned Data (area>0)
+
+2.1 Data Exploration
+Based on the histogram, we can see that the distribution of burned area is highly skewed. Hence, the Y (area) need to be transformed in order to continue with the analysis.
+```{r}
+datamul <- data[area>0,]
+hist(area[area>0],40)
+```
+
+2.2 Model Selection
+```{r}
+lmod0<-lm(area ~X+Y+month+day+FFMC+DMC+DC+ISI+temp+RH+wind+rain,data=datamul)
+summary(lmod0)
+```
+```{r}
+plot(lmod0)
+```
+
+```{r}
+library(car)
+boxCox(lmod0,lamda= seq(-2, 2, 1/10))
+```
+The Box-Cox suggests that we should take lamda=0, which means we should apply log transformation on the response variable area. After log transformation, we can see that area is approximately normally distributed.
+```{r}
+hist( log(area), 40 )
+```
+```{r}
+par(mfrow=c(3,3))
+plot(log(area) ~ X+Y+month+day+FFMC + DMC + DC + ISI + temp + RH + wind + rain,data = datamul)
+```
+```{r}
+lmod1<-lm(log(area) ~month+day+FFMC+DMC+DC+ISI+temp+RH+wind+rain,data=datamul)
+summary(lmod1)
+```
+```{r}
+lmod12<-step(lmod1,test="Chi",trace=F)
+summary(lmod12)
+```
+
+2.3 Transformation
+```{r}
+lmod2<-lm(log(area) ~month+day+(FFMC+DMC+DC+ISI+temp+RH+wind)^2+I(FFMC^2)+I(DMC^2)+I(DC^2)+I(ISI^2)+I(temp^2)+I(RH^2)+I(wind^2), data = datamul)
+summary(lmod2)
+```
+
+```{r}
+lmod3<-step(lmod2,test="Chi",trace=F)
+summary(lmod3)
+```
+```{r}
+pchisq(deviance(lmod3)-deviance(lmod2),df.residual(lmod3)-df.residual(lmod2),lower=F)
+pchisq(deviance(lmod12)-deviance(lmod3),df.residual(lmod12)-df.residual(lmod3),lower=F)
+```
+```{r}
+drop1(lmod3,test="Chi")
+```
+
+```{r}
+lmod31<-update(lmod3,.~.-DC:ISI)
+summary(lmod31)
+```
+
+```{r}
+pchisq(deviance(lmod31)-deviance(lmod3),df.residual(lmod31)-df.residual(lmod3),lower=F)
+```
+The chisquare test suggests that we should take the original model.
+```{r}
+datamult<- subset(databi,factor_area==1)
+lmod4<-lm(log(area) ~season+day+(FFMC+DMC+DC+ISI+temp+RH+wind)^2+I(FFMC^2)+I(DMC^2)+I(DC^2)+I(ISI^2)+I(temp^2)+I(RH^2)+I(wind^2), data = datamult)
+summary(lmod4)
+```
+```{r}
+lmod41<-step(lmod4,test="Chi",trace=F)
+summary(lmod41)
+```
+```{r}
+pchisq(deviance(lmod41)-deviance(lmod3),df.residual(lmod41)-df.residual(lmod3),lower=F)#original model lmod3
+```
+
+2.4 Diagnostics
+```{r}
+par(mfrow=c(2,2))
+plot(lmod3, which=c(1,2, 3, 4))
+```
+
+2.5 5-fold Cross Validation
+```{r}
+correct_count=0
+for (j in 1:5){
+  test <- read.table(paste0('../Desktop/forestfire_524/updated_test',j),header=TRUE,sep='\t')
+  train <- read.table(paste0('../Desktop/forestfire_524/updated_train',j),header=TRUE,sep='\t')
+  pred_res <- predict(lmod3,test,interval="confidence")
+  for (i in 1:54){
+    if ((log(test[i,13]) >= pred_res[i,2]) & (log(test[i,13]) <= pred_res[i,3])){
+      correct_count=correct_count+1
+    }
+  } 
+}
+correct_count
+correct_count/270
+```
+
+
+
+
+
+
+
+
+
+
