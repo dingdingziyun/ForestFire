@@ -1,0 +1,247 @@
+---
+title: "STAT 524 Project A Data Mining Approach to Predict Forest Fires"
+output:
+  word_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+Forest fires affects forest preservation, create economical and cological lost, and cause human suffering. Therefore, it is neccessary to forecast the forest fire for a successful firefightinng. Weather conditions such as temperature, rain, wind and air humidity are known to affact fire occurrence. There are several ways to detect fire such as satellite-based, smoke scanners and local sensors. However the first two methods have high equipment and maintainence cost. The last one, local sensors such as meteorological stations, can easily record the environmental data in real-time with low costs. In our project, we downloaded the forest fire data from UCI machine leanring repository (http://archive.ics.uci.edu/ml/datasets/Forest+Fires). This data provides the environmental condistions of forest fire in the northeast region of Portugal, by using meteorological and other data such as coordinates of the fire, dates and months of the fire. 
+
+The data set includes 517 instances without missing value. Our goal is to build a regression model to analyse the factors affects the forest fire.
+
+```{r}
+data <-read.csv("../Downloads/forestfires.csv",sep=',',header=TRUE)
+head(data)
+```
+```{r}
+data<-as.data.frame(data)
+attach(data)
+hist(area, 40)
+hist(log(area+1),40)
+```
+```{r}
+round(table(area==0)/nrow(data),2)
+```
+```{r}
+#####1-Question Approach
+par(mfrow=c(3,3))
+plot(log(area+1) ~ FFMC + DMC + DC + ISI + temp + RH + wind + rain,
+data = data)
+```
+```{r}
+boxplot(log(area+1)~X, data = data, xlab = "X", ylab = "fire area",main = "forest fire area for different X")
+```
+```{r}
+boxplot(log(area+1)~Y, data = data, xlab = "Y", ylab = "fire area",main = "forest fire area for different Y")
+```
+```{r}
+boxplot(log(area+1)~month, data = data, xlab = "month", ylab = "fire area",main = "forest fire area for different months")
+```
+```{r}
+boxplot(log(area+1)~day, data = data, xlab = "day", ylab = "fire area",main = "forest fire area for different days")
+```
+
+```{r}
+mod<-lm(log(area+1) ~ (Y+month+FFMC + DMC + DC + ISI + temp + RH + wind +rain)^2,data = data)
+summary(mod)
+data1<-data[-500,]
+mod500<-lm(log(area+1) ~ Y+month+(FFMC + DMC + DC + ISI + temp + RH + wind +rain)^2,data = data1)
+summary(mod500)
+```
+```{r}
+mod1<-step(mod,test="Chi",trace=F)
+summary(mod1)
+mod5001<-step(mod500,test="Chi",trace=F)
+summary(mod5001)
+```
+```{r}
+mod2<-update(mod1,.~.-RH)
+summary(mod2)
+mod5002<-update(mod5001,.~.-RH)
+summary(mod5002)
+```
+```{r}
+plot(mod1)
+plot(mod5001)
+```
+
+```{r}
+####2-Question Approach
+#1.The Occurrance of Forestfire (binomial)
+databi<-as.data.frame(data)
+databi$factor_area <- rep('0',517)
+for(i in 1:517){
+  if(databi$area[i]>0){
+    databi$factor_area[i] <-  1
+  }
+}
+par(mfrow=c(3,3))
+plot(factor_area ~ FFMC + DMC + DC + ISI + temp + RH + wind + rain,
+data = databi)
+```
+
+```{r}
+#1.1 Model Selection
+databi$factor_area<-as.numeric(databi$factor_area)
+bmod <- glm(factor_area~FFMC+DMC+DC+ISI+temp+RH+wind+rain,data=databi,family=binomial(link=logit))
+summary(bmod)
+```
+```{r}
+bmod1<-step(bmod,test="Chi",trace=F)
+summary(bmod1)
+```
+```{r}
+bmod2<-update(bmod1,.~.-wind)
+summary(bmod2)
+```
+```{r}
+pchisq(deviance(bmod2)-deviance(bmod1),1,lower=F) #LRT for age
+#The chisqure test shows that two models are not different, so we can go with the simlified model "mod2".
+```
+```{r}
+#1.2 Diagnostic
+library(rsq)
+rsq(bmod1)
+```
+
+```{r}
+#1.4 Transformation
+bmod3 <- glm(factor_area ~ (FFMC + DMC + DC + ISI)^2 + temp + RH + wind
++ rain + I(wind^2) + I(RH^2),
+data = databi,family=binomial(link=logit))
+summary(bmod3)
+```
+```{r}
+bmod4<-step(bmod3,test="Chi",trace=F)
+summary(bmod4)
+```
+
+```{r}
+rsq(bmod4)
+```
+
+```{r}
+#2.The Burned Area of the Fire
+#2.1 Data Exploration
+#Based on the histogram, we can see that the distribution of burned area is highly skewed. Hence, the Y (area) need to be transformed in order to continue with the analysis.
+attach(data)
+data<-as.data.frame(data)
+head(data)
+hist(area[area>0],40)
+```
+```{r}
+hist( log(area), 40 )
+#with the log transformation, we can see that area is approximately normally distributed.
+```
+```{r}
+datamul <- data[area>0,]
+boxplot(log(area)~as.factor(X), data = datamul, xlab = "X", ylab = "fire area",
+main = "forest fire area for different X's")
+```
+```{r}
+boxplot(log(area)~as.factor(Y), data = datamul, xlab = "Y", ylab = "fire area",
+main = "forest fire area for different Y's")
+```
+```{r}
+boxplot(log(area)~month, data = datamul, xlab = "month", ylab = "fire area", main = "forest fire area for different months")
+```
+```{r}
+boxplot(log(area)~day, data = datamul, xlab = "day", ylab = "fire area", main = "forest fire area for different months")
+```
+
+```{r}
+par(mfrow=c(3,3))
+plot(log(area) ~ FFMC + DMC + DC + ISI + temp + RH + wind + rain,
+data = datamul)
+```
+```{r}
+#Regression Model
+lmod <- lm(log(area)~(X+Y+month+FFMC+DMC+DC+ISI+temp+RH+wind+rain)^2,data=datamul)
+summary(lmod)
+```
+```{r}
+lmod1<-step(lmod,test="Chi",trace=F)
+summary(lmod1)
+```
+```{r}
+lmod2<-lm(log(area) ~ month + day + (FFMC + DMC + DC + ISI)^2 + temp +RH + wind + rain + I(wind^2) + I(RH^2), data = datamul)
+summary(lmod2)
+lmod3<-step(lmod2,test="Chi",trace=F)
+summary(lmod3)
+```
+
+```{r}
+par(mfrow=c(2,2))
+plot(lmod3, which=c(1,2, 3, 4))
+```
+
+
+
+```{r}
+#Principle Component Analysis
+facdata<-as.data.frame(databi[,5:12])
+head(facdata)
+weight <- diag(1/sqrt(diag(cov(facdata))))
+sfire <- (as.matrix(facdata)-rep(1, dim(facdata)[1])%*%t(apply(facdata, 2, mean)))%*%weight
+sfire <- as.data.frame(sfire)
+pca<- princomp(sfire)
+str(pca)
+barplot(pca$sdev^2)
+plot(cumsum(pca$sdev^2)/sum(pca$sdev^2)~c(1:8), type="b", pch=16, ylab="proportion of var", xlab="n. comp")
+(loading.pc <- pca$loadings[,c(1, 2)]%*%diag(pca$sdev[c(1, 2)]))
+loading.pc.varimax <- varimax(loading.pc)
+plot(loading.pc.varimax$loadings, type="n")
+text(loading.pc.varimax$loadings, names(facmul))
+ (cumsum(pca$sdev^2)/sum(pca$sdev^2))[c(1,2)]
+ par(mfrow=c(2,2))
+barplot(pca$loadings[,1])
+barplot(pca$loadings[,2])
+barplot(pca$loadings[,3])
+barplot(pca$loadings[,4])
+barplot(pca$loadings[,5])
+biplot(pca, pc.biplot=F, scale=0, var.axes=T)
+pcaload<-as.data.frame(pca$loadings[,1:5])
+pacfac<-facdata%*%pcaload
+head(facdata)
+pcaload
+
+```
+
+```{r}
+projection <- solve(t(loading.pc)%*%loading.pc)%*%t(loading.pc)
+scores.pc <- as.matrix(sfire)%*%t(projection)
+plot(scores.pc, pch=16)
+```
+
+```{r}
+#Factor analysis using all data
+fac3<- factanal(sfire1, 2, rotation="none")
+print(fac3, digits=2, cutoff=-.2,sort=FALSE)
+```
+```{r}
+loadings<-fac3$loadings
+plot(loadings, type="n")
+text(loadings, labels=names(facbi), cex=0.7)
+```
+```{r}
+#Rotation using all data
+fac4<- factanal(sfire1, 2, rotation="varimax")
+print(fac4, digits=2, cutoff=-.2,sort=FALSE)
+```
+```{r}
+loadings<-fac4$loadings
+plot(loadings, type="n")
+text(loadings, labels=names(facbi), cex=0.7)
+```
+
+
+
+
+
+
+
+
+
