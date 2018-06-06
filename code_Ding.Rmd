@@ -1,0 +1,173 @@
+---
+author: "Ziyun Ding"
+output:
+  pdf_document: default
+  word_document: default
+---
+###1. Data exploration.
+```{r}
+library(ggplot2)
+library(tidyverse)
+```
+
+```{r}
+data <-read.csv("forestfires.csv",sep=',',header=TRUE)
+data<-as.data.frame(data)
+attach(data)
+```
+```{r}
+#Figure 1. plot distribution of area
+ggplot(data, aes(x = area))+geom_histogram(aes(y = ..density..), fill = "light blue", colour = "black", bins = 40)
+```
+
+```{r}
+#Figure 2. plot distribution of the fire
+data %>% group_by(X, Y) %>% summarise(n=n()) %>% ggplot(aes(x=X, y=Y, size = n, color = n)) + geom_point() + scale_x_continuous(breaks = seq(1, 9, 1)) + scale_y_continuous(breaks = seq(1, 9, 1)) + xlab('X coordinate') + ylab('Y coordinate') + scale_colour_gradient(low = "light blue", high = "dark blue")
+```
+
+```{r}
+#count the number of burned area and not burned area
+round(table(area==0), 2)
+```
+
+```{r}
+#Table 1. find the region has most fire occurance
+data %>% filter(area > 0) %>% group_by(X, Y) %>% summarise(count = n(), max_area = max(area)) %>% arrange(desc(count)) %>% .[1:10,]
+```
+```{r}
+#Table 1. find the region has largest burned area.
+data %>% filter(area > 0) %>% group_by(X, Y) %>% summarise(count = n(), max_area = max(area)) %>% arrange(desc(max_area)) %>% .[1:10,]
+```
+
+###2. Factors Influencing Fire Occurrence
+
+By creating a dummy variable, factor_area with tow levels (factor_area=1 means the area was bured while factor_area=0 means the area wasn't burned), we are able to analysis the probability of the occurrance of fire with a binomial model.
+
+1.1 Data Transformation and Model Selection
+```{r}
+databi<-as.data.frame(data)
+databi$factor_area <- rep(0, 517)
+databi$factor_area[databi$area>0] <- 1
+```
+
+Because there are data unavailable in some levels of categorical factors month, we transform the month factor into the season factor. 
+
+```{r}
+#we re-classify the month factor into different seasons
+databi$season <- rep("spring", 517)
+for (i in 1:517){
+if (databi$month[i] %in% c("feb","jan","dec")) databi$season[i] <- "winter"
+if (databi$month[i] %in% c("oct","nov","sep")) databi$season[i] <- "autumn"
+if (databi$month[i] %in% c("aug","jul","jun")) databi$season[i] <- "summer"
+}
+databi$season <- as.factor(databi$season)
+databi$count<- rep(1, 517)
+(table<-xtabs(count~ season+factor_area, databi))
+```
+
+```{r}
+#refit model with season
+bmod3<-glm(factor_area~season+(FFMC+DMC+DC+ISI+temp+RH+wind)^2+I(FFMC^2)+I(DMC^2)+I(DC^2)+I(ISI^2)+I(temp^2)+I(RH^2)+I(wind^2),data=databi,family=binomial(link=logit))
+bmod4<-step(bmod3,test="Chi", trace =FALSE)
+summary(bmod4)
+```
+```{r}
+#estimate of the overdispersion parameter
+sum(residuals(bmod4,type="pearson")^2)/df.residual(bmod4)
+```
+
+1.2 Model Diagnosis
+```{r}
+#Figure 3. Diagnosis plots for the logistic regression model 
+par(mfrow=c(1,3))
+plot(bmod4, which=c(1,2, 4))
+```
+
+
+1.3 5-fold Cross Validation
+```{r}
+##cross validation using logistic regression model, using the binary response (burned or not) as response
+#fold <- 5
+#cut_off <- 0.7
+crossval <- function(fold, cut_off){
+  for(i in seq(floor(nrow(databi)/fold), nrow(databi), by=floor(nrow(databi)/fold))){
+          testingX <- databi[(i-floor(nrow(databi)/fold)+1):i, 5:12]
+          testingy <- databi[(i-floor(nrow(databi)/fold)+1):i, 13]
+          testing <- list(testingX, testingy)
+          training <- databi[-((i-floor(nrow(databi)/fold)+1):i),]
+          #trainingX <- databi[-(i:(i+fold-1)), 5:12]
+          #trainingy <- databi[-(i:(i+fold-1)), 13]
+          #training <- list(trainingX, trainingy)
+          log_pred <- predict(bmod4, testingX)
+          pred_prob <- exp(log_pred)/(1+exp(log_pred))
+          pred_prob[pred_prob > cut_off] <- 1
+          pred_prob[pred_prob < cut_off] <- 0
+          print(sum(pred_prob==testingy)/length(testingy))
+  }
+}
+```
+
+```{r}
+crossval(5, 0.8)
+```
+
+## Part 2: Factors Influencing Burned Area
+
+2.1 Data Transformation
+Based on the histogram, we can see that the distribution of burned area is highly skewed. Hence, the Y (area) need to be transformed in order to continue with the analysis.
+```{r}
+datamul <- data[area>0,]
+#Figure 4. plot distribution of area >0
+ggplot(datamul, aes(x = area))+geom_histogram(aes(y = ..density..), fill = "light blue", colour = "black", bins = 40)
+```
+```{r}
+# box-cox transformation suggest using log(area)
+lmod1<-lm(area ~month+day+(FFMC+DMC+DC+ISI+temp+RH+wind)^2+I(FFMC^2)+I(DMC^2)+I(DC^2)+I(ISI^2)+I(temp^2)+I(RH^2)+I(wind^2), data = datamul)
+library(car)
+boxCox(lmod1,lamda= seq(-2, 2, 1/10))
+```
+```{r}
+#Figure 5. plot area after transformation
+ggplot(datamul, aes(x = log(area)))+geom_histogram(aes(y = ..density..), fill = "light blue", colour = "black", bins = 40)+stat_function(fun = dnorm, args = list(mean = mean(log(area[area!=0])), sd = sd(log(area[area!=0]))), colour = 'orange')
+```
+
+
+2.2 Model Selection
+```{r}
+# model selection
+lmod2<-lm(log(area) ~month+day+(FFMC+DMC+DC+ISI+temp+RH+wind)^2+I(FFMC^2)+I(DMC^2)+I(DC^2)+I(ISI^2)+I(temp^2)+I(RH^2)+I(wind^2), data = datamul)
+lmod3<-step(lmod2,test="Chi",trace=F)
+summary(lmod3)
+```
+
+2.3 Model Diagnostics
+```{r}
+#Figure 6. Diagnosis plot for the linear regression model (2).
+par(mfrow=c(2,2))
+plot(lmod3, which=c(1,2, 3, 4))
+
+```
+
+2.4 5-fold Cross Validation
+```{r}
+##cross validation using linear regression model, using the burned area as response
+fold <- 5
+acc <- rep(0, fold)
+for(i in seq(floor(nrow(datamul)/fold), nrow(datamul), by=floor(nrow(datamul)/fold))){
+  correct_count <- 0
+  testingX <- datamul[(i-floor(nrow(datamul)/fold)+1):i, 2:12]
+  testingy <- datamul[(i-floor(nrow(datamul)/fold)+1):i, 13]
+  testing <- list(testingX, testingy)
+  training <- datamul[-((i-floor(nrow(datamul)/fold)+1):i), 2:13]
+
+  pred_res <- predict(lmod3,testingX,interval="confidence")
+  for (i in 1:length(testingy)){
+    if ((log(testingy[i]) >= pred_res[i,2]) & (log(testingy[i]) <= pred_res[i,3])){
+      correct_count=correct_count+1
+    }
+  }
+  print(correct_count/length(testingy))
+}
+```
+
+
