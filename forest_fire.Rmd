@@ -1,5 +1,5 @@
 ---
-title: "STAT 526 Project"
+title: "Forest Fire Project"
 output:
   word_document: default
   pdf_document: default
