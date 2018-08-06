@@ -13,7 +13,7 @@ Data Background
 
 We can see from the histgram below that over 50% of observations are with area equal to zero.
 ```{r}
-data <-read.csv("/Users/Renee/Google Drive/2017 Fall/STAT 526/project/forestfires.csv",sep=',',header=TRUE)
+data <-read.csv("/Users/Renee/Google Drive/2017 Fall/project/forestfires.csv",sep=',',header=TRUE)
 data<-as.data.frame(data)
 attach(data)
 hist(area, 40)
